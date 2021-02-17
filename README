@@ -1,0 +1,7 @@
+pgsqm
+=====
+
+PostgreSQL query composition utility
+
+Currently based on Python 3.6, will eventually require newer versions
+to use dataclasses (3.7) and simplify type annotations (3.9)
