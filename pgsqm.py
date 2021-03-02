@@ -55,8 +55,8 @@ def sort_dependencies(table: Table) -> List[Table]:
     result: List[Table] = []
     while todo:
         t: Table = todo.pop()
-        deps = [d for d in t.source_tables.values()
-                  if state[d] != Done]
+        deps = {d for d in t.source_tables.values()
+                  if state[d] != Done}
         if not deps:
             result.append(t)
             state[t] = Done
@@ -65,14 +65,15 @@ def sort_dependencies(table: Table) -> List[Table]:
         for d in deps:
             assert state[d] is not Pending, "Circular Table dependency"
             state[d] = Pending
-        todo += reversed(deps)
+        todo += deps
     return result
 
 hund = Table(SQL("SELECT a, b FROM (VALUES (1, 100), (2, 200)) t(a, b)"), {})
 thou = Table(SQL("SELECT a, b FROM (VALUES (1, 1000)) t(a, b)"), {})
 
-combine = Table(SQL("SELECT h.a, h.b, t.b FROM {h} LEFT JOIN {t} USING (a)"),
-                {"h": hund, "t": thou})
+combine = Table(SQL("SELECT h.a, h.b, t.b FROM {h} LEFT JOIN {t} USING (a) "
+                    "LEFT JOIN {q} USING (a)"),
+                {"h": hund, "t": thou, "q": hund})
 
 conn = psycopg2.connect("")
 
