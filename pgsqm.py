@@ -20,31 +20,34 @@ class Table(NamedTuple):
         return id(self) == id(other)
 
 
-def sql_with_subqueries(table: Table) -> Composed:
+def sql_with_subqueries(table: Table, **kwargs) -> Composed:
     """Recursively build Table query with dependencies as sub-queries"""
     return table.sql.format(
         **{s: Composed([SQL("("),
-                        sql_with_subqueries(t),
+                        sql_with_subqueries(t, **kwargs),
                         SQL(") AS "),
                         Identifier(s)])
-           for s, t in table.source_tables.items()}
+           for s, t in table.source_tables.items()},
+        **kwargs
     )
 
-def sql_with_named_deps(table: Table, deps: Mapping[Table, Identifier])\
-        -> Composed:
+def sql_with_named_deps(table: Table, deps: Mapping[Table, Identifier],
+                        **kwargs) -> Composed:
     """Build Table query relying on given Identifiers for dependencies"""
     return table.sql.format(
         **{s: Composed([deps[t], SQL(" AS "), Identifier(s)])
-           for s, t in table.source_tables.items()}
+           for s, t in table.source_tables.items()},
+        **kwargs
     )
 
-def sql_with_cte(table: Table, cte_deps: List[Table]) -> Composed:
+def sql_with_cte(table: Table, cte_deps: List[Table], **kwargs) -> Composed:
     """Build Table query with CTEs. cte_deps must be topologically sorted"""
     names = {t: Identifier("_cte%d" % i) for i, t in enumerate(cte_deps)}
     return Composed([SQL("WITH "), SQL("\n   , ").join(Composed(
-        Composed([n, SQL(" AS ("), sql_with_named_deps(t, names), SQL(")")])
+        Composed([n, SQL(" AS ("), sql_with_named_deps(t, names, **kwargs),
+                  SQL(")")])
         for t, n in names.items())
-        ), SQL("\n"), sql_with_named_deps(table, names)])
+        ), SQL("\n"), sql_with_named_deps(table, names, **kwargs)])
 
 def sort_dependencies(table: Table) -> List[Table]:
     """Sort Table objects topologically according to dependencies via DFS"""
@@ -68,14 +71,17 @@ def sort_dependencies(table: Table) -> List[Table]:
         todo += deps
     return result
 
-hund = Table(SQL("SELECT a, b FROM (VALUES (1, 100), (2, 200)) t(a, b)"), {})
-thou = Table(SQL("SELECT a, b FROM (VALUES (1, 1000)) t(a, b)"), {})
+hund = Table(SQL("SELECT {c}, b FROM (VALUES (1, 100), (2, 200)) t({c}, b)"), {})
+thou = Table(SQL("SELECT {c}, b FROM (VALUES (1, 1000)) t({c}, b)"), {})
 
-combine = Table(SQL("SELECT h.a, h.b, t.b FROM {h} LEFT JOIN {t} USING (a) "
+combine = Table(SQL("SELECT h.{c}, h.b, t.b FROM {h} LEFT JOIN {t} USING (a) "
                     "LEFT JOIN {q} USING (a)"),
                 {"h": hund, "t": thou, "q": hund})
 
 conn = psycopg2.connect("")
 
-print(sql_with_subqueries(combine).as_string(conn))
-print(sql_with_cte(combine, sort_dependencies(combine)[:-1]).as_string(conn))
+args = {"c": Identifier("a")}
+
+print(sql_with_subqueries(combine, **args).as_string(conn))
+print(sql_with_cte(combine, sort_dependencies(combine)[:-1], **args)
+        .as_string(conn))
